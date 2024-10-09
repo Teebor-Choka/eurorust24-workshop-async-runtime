@@ -62,6 +62,25 @@ async fn select<A: Future, B: Future>(left: A, right: B) -> Either<A::Output, B:
     Select::new(left, right).await
 }
 
+// sexier implementation using poll_fn
+async fn select2<A: Future, B: Future>(left: A, right: B) -> Either<A::Output, B::Output> {
+    let mut left = std::pin::pin!(left);
+    let mut right = std::pin::pin!(right);
+
+    std::future::poll_fn(move |cx| {
+        if let Poll::Ready(left) = left.as_mut().poll(cx) {
+            return Poll::Ready(Either::Left(left));
+        }
+
+        if let Poll::Ready(right) = right.as_mut().poll(cx) {
+            return Poll::Ready(Either::Right(right));
+        }
+
+        Poll::Pending
+    }).await
+}
+
+
 #[tokio::main]
 async fn main() {
     let (tx, rx) = tokio::sync::oneshot::channel();
@@ -74,7 +93,7 @@ async fn main() {
     let left = tokio::time::sleep(Duration::from_secs(3));
     let right = rx;
 
-    let res = select(left, right).await;
+    let res = select2(left, right).await;
 
     println!("raced: {:?}", res);
 }
